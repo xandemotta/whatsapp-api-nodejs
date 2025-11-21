@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Reset de Sessões do WhatsApp (Signal / Baileys)</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 40px 24px;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+                Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue",
+                sans-serif;
+            background: #f3f4f6;
+            color: #111827;
+        }
+
+        .page {
+            max-width: 840px;
+            margin: 0 auto;
+            background: #ffffff;
+            padding: 40px 48px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+        }
+
+        h1, h2, h3 {
+            font-weight: 600;
+            color: #111827;
+            margin-top: 0;
+        }
+
+        h1 {
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+
+        h2 {
+            font-size: 22px;
+            margin-top: 32px;
+        }
+
+        h3 {
+            font-size: 18px;
+            margin-top: 20px;
+        }
+
+        p {
+            margin: 8px 0 10px;
+            line-height: 1.6;
+            font-size: 14px;
+        }
+
+        ul {
+            padding-left: 20px;
+            margin: 6px 0 10px;
+        }
+
+        li {
+            margin: 4px 0;
+            font-size: 14px;
+        }
+
+        code {
+            font-family: "JetBrains Mono", SFMono-Regular, Menlo, Monaco, Consolas,
+                "Liberation Mono", "Courier New", monospace;
+            background: #f3f4f6;
+            padding: 1px 4px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        pre {
+            background: #020617;
+            color: #e5e7eb;
+            padding: 12px 14px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 12px;
+            line-height: 1.5;
+            margin: 8px 0 12px;
+        }
+
+        pre code {
+            background: transparent;
+            padding: 0;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: #eff6ff;
+            color: #1d4ed8;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 10px;
+        }
+
+        .badge-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+            background: #3b82f6;
+        }
+
+        .header-subtitle {
+            font-size: 13px;
+            color: #6b7280;
+            margin-bottom: 0;
+        }
+
+        .divider {
+            border: none;
+            border-top: 1px solid #e5e7eb;
+            margin: 20px 0;
+        }
+
+        .callout {
+            border-radius: 10px;
+            padding: 10px 12px;
+            background: #ecfdf5;
+            border: 1px solid #bbf7d0;
+            font-size: 13px;
+            color: #166534;
+            margin: 12px 0;
+        }
+
+        .callout-strong {
+            font-weight: 600;
+        }
+
+        .section-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #9ca3af;
+            margin-bottom: 4px;
+        }
+
+        .section-block {
+            margin-top: 18px;
+        }
+
+        .footer-note {
+            margin-top: 28px;
+            font-size: 11px;
+            color: #9ca3af;
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+<div class="page">
+    <div class="badge">
+        <span class="badge-dot"></span>
+        Reset de Sessões
+    </div>
+    <h1>Reset de Sessões do WhatsApp (Signal / Baileys)</h1>
+    <p class="header-subtitle">
+        Guia rápido para limpar sessões quebradas (erros de criptografia) e voltar a operar com um estado totalmente novo.
+    </p>
+
+    <hr class="divider" />
+
+    <div class="section-block">
+        <div class="section-label">Visão geral</div>
+        <p>
+            Em alguns cenários (por exemplo, erros de criptografia como <code>bad mac</code> ou
+            <code>SessionError: Over 2000 messages into the future!</code>), pode ser necessário
+            <strong>zerar completamente todas as sessões</strong> armazenadas no MongoDB.
+        </p>
+        <p>
+            Este projeto usa duas variáveis de ambiente para controlar esse comportamento:
+        </p>
+        <ul>
+            <li><code>RESET_ALL_SESSIONS_ON_START</code></li>
+            <li><code>RESTORE_SESSIONS_ON_START_UP</code></li>
+        </ul>
+    </div>
+
+    <div class="section-block">
+        <h2>1. Reset completo de todas as sessões</h2>
+        <p>
+            Quando <code>RESET_ALL_SESSIONS_ON_START=true</code>, na inicialização da API:
+        </p>
+        <ul>
+            <li>A aplicação conecta no MongoDB.</li>
+            <li>Droppa o banco <code>whatsapp-api</code> (sessões Baileys/libsignal + credenciais das instâncias).</li>
+            <li>Ou seja, <strong>todas as sessões são apagadas</strong>.</li>
+            <li>Em seguida, a API sobe normalmente, porém <strong>sem nenhuma sessão ativa</strong>.</li>
+        </ul>
+
+        <h3>Passo a passo para resetar tudo</h3>
+
+        <p><strong>1.</strong> Edite o arquivo <code>.env</code> e configure:</p>
+        <pre><code>RESET_ALL_SESSIONS_ON_START=true
+RESTORE_SESSIONS_ON_START_UP=false</code></pre>
+        <ul>
+            <li><code>RESET_ALL_SESSIONS_ON_START=true</code>: apaga todas as sessões do banco <code>whatsapp-api</code> na próxima subida.</li>
+            <li><code>RESTORE_SESSIONS_ON_START_UP=false</code>: evita tentar restaurar sessões antigas (que já foram apagadas).</li>
+        </ul>
+
+        <p><strong>2.</strong> Reinicie a API (exemplo com PM2):</p>
+        <pre><code>pm2 restart api-whatsapp-nova</code></pre>
+
+        <p><strong>3.</strong> Verifique os logs de inicialização, procurando por mensagens como:</p>
+        <ul>
+            <li><code>STATE: RESET_ALL_SESSIONS_ON_START=true -&gt; dropping whatsapp-api database</code></li>
+            <li><code>STATE: whatsapp-api database dropped successfully (all sessions cleared)</code></li>
+        </ul>
+
+        <p><strong>4.</strong> Crie novamente as instâncias desejadas:</p>
+        <pre><code>GET /instance/init?key=SUA_KEY</code></pre>
+        <p>
+            Em seguida, escaneie o novo QR Code com o WhatsApp para cada <code>key</code>.
+        </p>
+    </div>
+
+    <div class="section-block">
+        <h2>2. Voltando ao modo “normal”</h2>
+        <p>
+            Depois de resetar e recriar as sessões, volte a configuração para o modo de operação
+            padrão.
+        </p>
+
+        <p><strong>1.</strong> Edite novamente o <code>.env</code>:</p>
+        <pre><code>RESET_ALL_SESSIONS_ON_START=false
+RESTORE_SESSIONS_ON_START_UP=false  # ou true, se quiser restaurar sessões no boot</code></pre>
+        <ul>
+            <li><code>RESET_ALL_SESSIONS_ON_START=false</code>: evita apagar tudo em todo restart.</li>
+            <li>
+                <code>RESTORE_SESSIONS_ON_START_UP</code>:
+                <ul>
+                    <li><code>false</code>: você controla tudo via API (<code>/instance/init</code>), sem restore automático.</li>
+                    <li><code>true</code>: ao iniciar, a API tenta restaurar todas as sessões que estiverem salvas no Mongo.</li>
+                </ul>
+            </li>
+        </ul>
+
+        <p><strong>2.</strong> Reinicie a API para aplicar as alterações:</p>
+        <pre><code>pm2 restart api-whatsapp-nova</code></pre>
+    </div>
+
+    <div class="section-block">
+        <h2>3. Quando usar esse reset completo</h2>
+        <p>
+            Use o combo abaixo apenas em situações específicas:
+        </p>
+        <pre><code>RESET_ALL_SESSIONS_ON_START=true
+RESTORE_SESSIONS_ON_START_UP=false</code></pre>
+        <ul>
+            <li>Quando a sessão está quebrada a ponto de não conseguir mais usar o número.</li>
+            <li>Quando você precisa garantir que <strong>todas as sessões antigas</strong> serão apagadas e começar do zero.</li>
+        </ul>
+
+        <div class="callout">
+            <span class="callout-strong">No dia a dia:</span><br />
+            mantenha <code>RESET_ALL_SESSIONS_ON_START=false</code> e ajuste
+            <code>RESTORE_SESSIONS_ON_START_UP</code> conforme sua operação (geralmente
+            <code>false</code> em produção, para evitar restaurar sessões muito antigas por engano).
+        </div>
+    </div>
+
+    <div class="footer-note">
+        Documento gerado para auxiliar operações de reset de sessão do WhatsApp API.
+    </div>
+</div>
+</body>
+</html>
+

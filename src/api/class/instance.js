@@ -4,6 +4,7 @@ const pino = require('pino')
 const {
     default: makeWASocket,
     DisconnectReason,
+    fetchLatestBaileysVersion,
 } = require('@whiskeysockets/baileys')
 const { unlinkSync } = require('fs')
 const { v4: uuidv4 } = require('uuid')
@@ -17,10 +18,47 @@ const downloadMessage = require('../helper/downloadMsg')
 const logger = require('pino')()
 const useMongoDBAuthState = require('../helper/mongoAuthState')
 
+// global console.error hook to detect Signal/libsignal crypto/session errors
+// and trigger a reset in all active instances (single-API scenario)
+const originalConsoleError = console.error
+let globalCryptoErrorHandled = false
+console.error = function (...args) {
+    try {
+        const msg = args
+            .map((a) =>
+                a && a.message
+                    ? a.message
+                    : typeof a === 'string'
+                    ? a
+                    : ''
+            )
+            .join(' ')
+        const isCrypto =
+            /bad mac/i.test(msg) ||
+            /over 2000 messages into the future/i.test(msg)
+        if (isCrypto && !globalCryptoErrorHandled) {
+            globalCryptoErrorHandled = true
+            logger.error(
+                'STATE: Global crypto error detected, scheduling one-time reset for all active instances'
+            )
+            if (global.WhatsAppInstances) {
+                Object.values(global.WhatsAppInstances).forEach((inst) => {
+                    try {
+                        inst?._handleCryptoError?.()
+                    } catch {}
+                })
+            }
+        }
+    } catch {}
+    return originalConsoleError.apply(console, args)
+}
+
 class WhatsAppInstance {
     socketConfig = {
-        defaultQueryTimeoutMs: undefined,
-        printQRInTerminal: false,
+        defaultQueryTimeoutMs: config.socket?.defaultQueryTimeoutMs,
+        markOnlineOnConnect: config.socket?.markOnlineOnConnect,
+        syncFullHistory: config.socket?.syncFullHistory,
+        emitOwnEvents: config.socket?.emitOwnEvents,
         logger: pino({
             level: config.log.level,
         }),
@@ -39,6 +77,11 @@ class WhatsAppInstance {
         customWebhook: '',
     }
 
+    // internal guards to avoid duplicate sockets/reconnect storms
+    _reconnecting = false
+    _closed = false
+    _cryptoResetting = false
+
     axiosInstance = axios.create({
         baseURL: config.webhookUrl,
     })
@@ -56,6 +99,35 @@ class WhatsAppInstance {
                 baseURL: webhook,
             })
         }
+
+        // wrap Baileys logger to detect crypto/session errors and trigger auto reset
+        const baseLogger = this.socketConfig.logger
+        const self = this
+        const wrappedLogger = Object.create(baseLogger)
+        wrappedLogger.error = function (...args) {
+            try {
+                const msg = args
+                    .map((a) =>
+                        a && a.message
+                            ? a.message
+                            : typeof a === 'string'
+                            ? a
+                            : ''
+                    )
+                    .join(' ')
+                if (
+                    /bad mac/i.test(msg) ||
+                    /over 2000 messages into the future/i.test(msg)
+                ) {
+                    logger.error(
+                        `STATE: Detected Signal crypto error for instance ${self.key}, scheduling session reset`
+                    )
+                    self._handleCryptoError().catch(() => {})
+                }
+            } catch {}
+            return baseLogger.error.apply(baseLogger, args)
+        }
+        this.socketConfig.logger = wrappedLogger
     }
 
     async SendWebhook(type, body, key) {
@@ -69,13 +141,117 @@ class WhatsAppInstance {
             .catch(() => {})
     }
 
+    // remove all state related to this instance so user can reconnect cleanly
+    async deleteInstance(key) {
+        try {
+            // try to logout and close socket cleanly
+            try {
+                await this.instance.sock?.logout()
+            } catch {}
+            try {
+                this.instance.sock?.ev?.removeAllListeners()
+            } catch {}
+            try {
+                this.instance.sock?.ws?.close()
+            } catch {}
+
+            // drop Baileys auth collection (Signal session, keys, etc.)
+            try {
+                if (this.collection) {
+                    await this.collection.drop()
+                    logger.info(`STATE: Dropped auth collection for instance ${key}`)
+                } else if (typeof mongoClient !== 'undefined') {
+                    const db = mongoClient.db('whatsapp-api')
+                    const collections = await db
+                        .listCollections({ name: key })
+                        .toArray()
+                    if (collections.length) {
+                        await db.collection(key).drop()
+                        logger.info(
+                            `STATE: Dropped auth collection for instance ${key}`
+                        )
+                    }
+                }
+            } catch (e) {
+                logger.error(e)
+                logger.error(
+                    `Error dropping auth collection for instance ${key}`
+                )
+            }
+
+            // remove chat snapshot for this instance (if mongoose enabled)
+            try {
+                if (config.mongoose.enabled) {
+                    await Chat.deleteOne({ key })
+                    logger.info(
+                        `STATE: Removed Chat document for instance ${key}`
+                    )
+                }
+            } catch (e) {
+                logger.error(e)
+                logger.error(
+                    `Error deleting Chat document for instance ${key}`
+                )
+            }
+        } catch (e) {
+            logger.error(e)
+            logger.error(`Error deleting instance ${key}`)
+        }
+    }
+
+    async _handleCryptoError() {
+        if (this._cryptoResetting || this._closed) return
+        this._cryptoResetting = true
+        logger.error(
+            `STATE: Crypto/session error handler running for instance ${this.key}`
+        )
+        try {
+            await this.deleteInstance(this.key)
+            logger.info(
+                `STATE: Session cleared for instance ${this.key} due to crypto error. A new QR will be required.`
+            )
+            // Recreate socket with fresh auth state so routes can immediately fetch a new QR
+            try {
+                await this.init()
+                logger.info(
+                    `STATE: Instance ${this.key} reinitialized after crypto error`
+                )
+            } catch (e) {
+                logger.error(e)
+                logger.error(
+                    `STATE: Failed to reinitialize instance ${this.key} after crypto error`
+                )
+            }
+        } catch (e) {
+            logger.error(e)
+            logger.error(
+                `STATE: Failed to clear session for instance ${this.key} after crypto error`
+            )
+        } finally {
+            this._cryptoResetting = false
+        }
+    }
+
     async init() {
         this.collection = mongoClient.db('whatsapp-api').collection(this.key)
         const { state, saveCreds } = await useMongoDBAuthState(this.collection)
         this.authState = { state: state, saveCreds: saveCreds }
         this.socketConfig.auth = this.authState.state
         this.socketConfig.browser = Object.values(config.browser)
+        try {
+            const { version } = await fetchLatestBaileysVersion()
+            this.socketConfig.version = version
+        } catch (e) {
+            // fallback silently if fetch fails
+        }
+        // ensure any previous socket is fully closed before creating a new one
+        try {
+            this.instance.sock?.ev?.removeAllListeners()
+            this.instance.sock?.ws?.close()
+        } catch {}
+
         this.instance.sock = makeWASocket(this.socketConfig)
+        this._closed = false
         this.setHandler()
         return this
     }
@@ -87,22 +263,72 @@ class WhatsAppInstance {
 
         // on socket closed, opened, connecting
         sock?.ev.on('connection.update', async (update) => {
+            logger.info('CONECTION UPDATE:', update)
+            console.log('CONECTION UPDATE:', update)
             const { connection, lastDisconnect, qr } = update
 
-            if (connection === 'connecting') return
+            if (connection === 'connecting') {
+                // reset QR retry on fresh connecting state
+                this.instance.qrRetry = 0
+                return
+            }
 
             if (connection === 'close') {
-                // reconnect if not logged out
-                if (
-                    lastDisconnect?.error?.output?.statusCode !==
-                    DisconnectReason.loggedOut
-                ) {
-                    await this.init()
-                } else {
-                    await this.collection.drop().then((r) => {
-                        logger.info('STATE: Droped collection')
-                    })
+                const statusCode = lastDisconnect?.error?.output?.statusCode
+                const errMsg = lastDisconnect?.error?.message || ''
+                const isLoggedOut = statusCode === DisconnectReason.loggedOut
+                const isRestartRequired = /restart required/i.test(errMsg)
+                const isConflict = /conflict/i.test(errMsg)
+                const isCryptoError =
+                    /bad mac/i.test(errMsg) ||
+                    /over 2000 messages into the future/i.test(errMsg)
+
+                // avoid multiple parallel reconnect attempts
+                if (this._reconnecting) {
+                    return
+                }
+
+                if (isLoggedOut || isCryptoError) {
+                    // drop credentials on explicit logged out
+                    // or when we detect severe crypto/session errors
+                    try {
+                        await this.collection.drop()
+                        logger.info(
+                            `STATE: Dropped collection for ${
+                                isLoggedOut ? 'logged out' : 'crypto error'
+                            }`
+                        )
+                    } catch {}
+                    if (config.mongoose.enabled) {
+                        try {
+                            await Chat.deleteOne({ key: this.key })
+                            logger.info(
+                                'STATE: Removed Chat document after session reset'
+                            )
+                        } catch (e) {
+                            logger.error(e)
+                            logger.error(
+                                'Error deleting Chat document after session reset'
+                            )
+                        }
+                    }
                     this.instance.online = false
+                    this._closed = true
+                    return
+                }
+
+                // For conflict or restart-required, do a clean reconnect without dropping state
+                this._reconnecting = true
+                try {
+                    try {
+                        this.instance.sock?.ev.removeAllListeners()
+                        this.instance.sock?.ws?.close()
+                    } catch {}
+                    // small delay to let the server settle and avoid immediate conflict
+                    await new Promise((r) => setTimeout(r, isConflict ? 2000 : 500))
+                    await this.init()
+                } finally {
+                    this._reconnecting = false
                 }
 
                 if (
@@ -121,6 +347,8 @@ class WhatsAppInstance {
                         this.key
                     )
             } else if (connection === 'open') {
+                // reset QR retry and mark online
+                this.instance.qrRetry = 0
                 if (config.mongoose.enabled) {
                     let alreadyThere = await Chat.findOne({
                         key: this.key,
@@ -149,16 +377,53 @@ class WhatsAppInstance {
             }
 
             if (qr) {
-                QRCode.toDataURL(qr).then((url) => {
+                QRCode.toDataURL(qr).then(async (url) => {
                     this.instance.qr = url
                     this.instance.qrRetry++
+
+                    // notify external system (e.g., Delphi) that a new QR is available
+                    if (
+                        ['all', 'qr'].some((e) =>
+                            config.webhookAllowedEvents.includes(e)
+                        )
+                    ) {
+                        await this.SendWebhook(
+                            'qr_code',
+                            {
+                                qr: url,
+                                retry: this.instance.qrRetry,
+                            },
+                            this.key
+                        )
+                    }
+
                     if (this.instance.qrRetry >= config.instance.maxRetryQr) {
                         // close WebSocket connection
-                        this.instance.sock.ws.close()
+                        try {
+                            this.instance.sock.ws.close()
+                        } catch {}
                         // remove all events
-                        this.instance.sock.ev.removeAllListeners()
+                        try {
+                            this.instance.sock.ev.removeAllListeners()
+                        } catch {}
                         this.instance.qr = ' '
                         logger.info('socket connection terminated')
+
+                        // notify that the session has effectively expired due to too many QR retries
+                        if (
+                            ['all', 'qr'].some((e) =>
+                                config.webhookAllowedEvents.includes(e)
+                            )
+                        ) {
+                            await this.SendWebhook(
+                                'session_expired',
+                                {
+                                    reason: 'max_retry_qr',
+                                    retry: this.instance.qrRetry,
+                                },
+                                this.key
+                            )
+                        }
                     }
                 })
             }

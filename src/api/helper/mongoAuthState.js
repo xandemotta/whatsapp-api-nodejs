@@ -84,20 +84,20 @@ module.exports = useMongoDBAuthState = async (collection) => {
             creds,
             keys: {
                 get: async (type, ids) => {
-                    const data = {}
+                    const store = {}
                     await Promise.all(
                         ids.map(async (id) => {
                             let value = await readData(`${type}-${id}`)
-                            if (type === 'app-state-sync-key') {
+                            if (type === 'app-state-sync-key' && value) {
                                 value =
                                     proto.Message.AppStateSyncKeyData.fromObject(
-                                        data
+                                        value
                                     )
                             }
-                            data[id] = value
+                            store[id] = value
                         })
                     )
-                    return data
+                    return store
                 },
                 set: async (data) => {
                     const tasks = []

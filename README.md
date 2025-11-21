@@ -90,6 +90,24 @@ Important: You must set TOKEN= to a random string to protect the route.
 TOKEN=RANDOM_STRING_HERE
 ```
 
+## Baileys upgrade and socket settings
+
+This project uses `@whiskeysockets/baileys` 6.7.x. To upgrade to the latest patch:
+
+```
+npm install @whiskeysockets/baileys@^6.7.21
+```
+
+Recommended environment defaults for stability:
+
+- `INSTANCE_MAX_RETRY_QR=5` — more time to scan before stopping.
+- `MARK_ONLINE_ON_CONNECT=false` — reduces presence noise and rate limits.
+- `SYNC_FULL_HISTORY=false` — faster startup, lighter on resources.
+- `EMIT_OWN_EVENTS=false` — avoid duplicate webhook events for own messages.
+- `DEFAULT_QUERY_TIMEOUT_MS=60000` — extend network timeouts on slow links.
+
+These map to Baileys’ `makeWASocket` options and are applied automatically by `src/api/class/instance.js`.
+
 # Usage
 
 1. `DEVELOPMENT:` Execute `yarn dev`

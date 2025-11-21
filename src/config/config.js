@@ -14,11 +14,28 @@ const APP_URL = process.env.APP_URL || false
 
 const LOG_LEVEL = process.env.LOG_LEVEL
 
-const INSTANCE_MAX_RETRY_QR = process.env.INSTANCE_MAX_RETRY_QR || 2
+// How many QR generations before giving up (higher is more forgiving)
+const INSTANCE_MAX_RETRY_QR = process.env.INSTANCE_MAX_RETRY_QR || 5
 
 const CLIENT_PLATFORM = process.env.CLIENT_PLATFORM || 'Whatsapp MD'
 const CLIENT_BROWSER = process.env.CLIENT_BROWSER || 'Chrome'
 const CLIENT_VERSION = process.env.CLIENT_VERSION || '4.0.0'
+
+// Baileys socket behavior toggles
+const MARK_ONLINE_ON_CONNECT = !!(
+    process.env.MARK_ONLINE_ON_CONNECT &&
+    process.env.MARK_ONLINE_ON_CONNECT === 'true'
+)
+const SYNC_FULL_HISTORY = !!(
+    process.env.SYNC_FULL_HISTORY && process.env.SYNC_FULL_HISTORY === 'true'
+)
+const EMIT_OWN_EVENTS = !!(
+    process.env.EMIT_OWN_EVENTS && process.env.EMIT_OWN_EVENTS === 'true'
+)
+const DEFAULT_QUERY_TIMEOUT_MS = parseInt(
+    process.env.DEFAULT_QUERY_TIMEOUT_MS || '60000',
+    10
+)
 
 // Enable or disable mongodb
 const MONGODB_ENABLED = !!(
@@ -54,6 +71,12 @@ module.exports = {
     },
     instance: {
         maxRetryQr: INSTANCE_MAX_RETRY_QR,
+    },
+    socket: {
+        markOnlineOnConnect: MARK_ONLINE_ON_CONNECT,
+        syncFullHistory: SYNC_FULL_HISTORY,
+        emitOwnEvents: EMIT_OWN_EVENTS,
+        defaultQueryTimeoutMs: DEFAULT_QUERY_TIMEOUT_MS,
     },
     mongoose: {
         enabled: MONGODB_ENABLED,
