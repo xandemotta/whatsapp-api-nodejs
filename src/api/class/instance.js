@@ -207,21 +207,12 @@ class WhatsAppInstance {
         )
         try {
             await this.deleteInstance(this.key)
-            logger.info(
-                `STATE: Session cleared for instance ${this.key} due to crypto error. A new QR will be required.`
-            )
-            // Recreate socket with fresh auth state so routes can immediately fetch a new QR
-            try {
-                await this.init()
-                logger.info(
-                    `STATE: Instance ${this.key} reinitialized after crypto error`
-                )
-            } catch (e) {
-                logger.error(e)
-                logger.error(
-                    `STATE: Failed to reinitialize instance ${this.key} after crypto error`
-                )
+            if (global.WhatsAppInstances && global.WhatsAppInstances[this.key]) {
+                delete global.WhatsAppInstances[this.key]
             }
+            logger.info(
+                `STATE: Session cleared for instance ${this.key} due to crypto error and removed from registry. External client should call /instance/init to pair again.`
+            )
         } catch (e) {
             logger.error(e)
             logger.error(
@@ -678,14 +669,6 @@ class WhatsAppInstance {
                     this.key
                 )
         })
-    }
-
-    async deleteInstance(key) {
-        try {
-            await Chat.findOneAndDelete({ key: key })
-        } catch (e) {
-            logger.error('Error updating document failed')
-        }
     }
 
     async getInstanceDetail(key) {

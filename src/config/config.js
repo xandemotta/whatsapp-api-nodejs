@@ -56,6 +56,12 @@ const WEBHOOK_BASE64 = !!(
 )
 // allowed events which should be sent to webhook
 const WEBHOOK_ALLOWED_EVENTS = process.env.WEBHOOK_ALLOWED_EVENTS?.split(',') || ['all']
+
+// Daily reset of all Signal/Baileys sessions at midnight (optional)
+const DAILY_RESET_SESSIONS_AT_MIDNIGHT = !!(
+    process.env.DAILY_RESET_SESSIONS_AT_MIDNIGHT &&
+    process.env.DAILY_RESET_SESSIONS_AT_MIDNIGHT === 'true'
+)
 // Mark messages as seen
 const MARK_MESSAGES_READ = !!(
     process.env.MARK_MESSAGES_READ && process.env.MARK_MESSAGES_READ === 'true'
@@ -92,6 +98,7 @@ module.exports = {
         browser: CLIENT_BROWSER,
         version: CLIENT_VERSION,
     },
+    dailyResetSessionsAtMidnight: DAILY_RESET_SESSIONS_AT_MIDNIGHT,
     webhookEnabled: WEBHOOK_ENABLED,
     webhookUrl: WEBHOOK_URL,
     webhookBase64: WEBHOOK_BASE64,

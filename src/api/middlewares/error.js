@@ -3,6 +3,7 @@ const APIError = require('../../api/errors/api.error')
 
 const handler = (err, req, res, next) => {
     const statusCode = err.statusCode ? err.statusCode : 500
+    const sessionId = req?.query?.key || req?.body?.key || null
 
     res.setHeader('Content-Type', 'application/json')
     res.status(statusCode)
@@ -10,6 +11,7 @@ const handler = (err, req, res, next) => {
         error: true,
         code: statusCode,
         message: err.message,
+        sessionId,
     })
 }
 

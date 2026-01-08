@@ -17,7 +17,8 @@
       "error_file": "/root/.pm2/logs/api-whatsapp-nova-error.log",
       "out_file": "/root/.pm2/logs/api-whatsapp-nova-out.log",
       "merge_logs": true,
-      "time": true
+      "time": true,
+      "log_date_format": "YYYY-MM-DD HH:mm:ss"
     }
   ]
 }
